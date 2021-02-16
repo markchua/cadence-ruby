@@ -6,13 +6,16 @@ require 'cadence/activity/task_processor'
 module Cadence
   class Activity
     class Poller
-      THREAD_POOL_SIZE = 20
+      DEFAULT_OPTIONS = {
+        thread_pool_size: 20
+      }.freeze
 
-      def initialize(domain, task_list, activity_lookup, middleware = [])
+      def initialize(domain, task_list, activity_lookup, middleware = [], options = {})
         @domain = domain
         @task_list = task_list
         @activity_lookup = activity_lookup
         @middleware = middleware
+        @options = DEFAULT_OPTIONS.merge(options)
         @shutting_down = false
       end
 
@@ -33,10 +36,10 @@ module Cadence
 
       private
 
-      attr_reader :domain, :task_list, :activity_lookup, :middleware, :thread
+      attr_reader :domain, :task_list, :activity_lookup, :middleware, :options, :thread
 
       def client
-        @client ||= Cadence::Client.generate
+        @client ||= Cadence::Client.generate(options)
       end
 
       def shutting_down?
@@ -44,14 +47,20 @@ module Cadence
       end
 
       def poll_loop
+        last_poll_time = Time.now
+        metrics_tags = { domain: domain, task_list: task_list }.freeze
+
         loop do
           thread_pool.wait_for_available_threads
 
           return if shutting_down?
 
+          time_diff_ms = ((Time.now - last_poll_time) * 1000).round
+          Cadence.metrics.timing('activity_poller.time_since_last_poll', time_diff_ms, metrics_tags)
           Cadence.logger.debug("Polling for activity tasks (#{domain} / #{task_list})")
 
           task = poll_for_task
+          last_poll_time = Time.now
           next unless task&.activityId
 
           thread_pool.schedule { process(task) }
@@ -73,7 +82,7 @@ module Cadence
       end
 
       def thread_pool
-        @thread_pool ||= ThreadPool.new(THREAD_POOL_SIZE)
+        @thread_pool ||= ThreadPool.new(options[:thread_pool_size])
       end
     end
   end

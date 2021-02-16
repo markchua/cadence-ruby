@@ -6,6 +6,8 @@ require 'cadence/metadata'
 module Cadence
   class Workflow
     class DecisionTaskProcessor
+      MAX_FAILED_ATTEMPTS = 50
+
       def initialize(task, domain, workflow_lookup, client, middleware_chain)
         @task = task
         @domain = domain
@@ -27,7 +29,7 @@ module Cadence
           return
         end
 
-        history = Workflow::History.new(task.history.events)
+        history = fetch_full_history
         # TODO: For sticky workflows we need to cache the Executor instance
         executor = Workflow::Executor.new(workflow_class, history)
         metadata = Metadata.generate(Metadata::DECISION_TYPE, task, domain)
@@ -38,7 +40,7 @@ module Cadence
 
         complete_task(decisions)
       rescue StandardError => error
-        Cadence.logger.error("Decison task for #{workflow_name} failed with: #{error.inspect}")
+        fail_task(error.inspect)
         Cadence.logger.debug(error.backtrace.join("\n"))
       ensure
         time_diff_ms = ((Time.now - start_time) * 1000).round
@@ -58,6 +60,25 @@ module Cadence
         decisions.map { |(_, decision)| Workflow::Serializer.serialize(decision) }
       end
 
+      def fetch_full_history
+        events = task.history.events.to_a
+        next_page_token = task.nextPageToken
+
+        while next_page_token do
+          response = client.get_workflow_execution_history(
+            domain: domain,
+            workflow_id: task.workflowExecution.workflowId,
+            run_id: task.workflowExecution.runId,
+            next_page_token: next_page_token
+          )
+
+          events += response.history.events.to_a
+          next_page_token = response.nextPageToken
+        end
+
+        Workflow::History.new(events)
+      end
+
       def complete_task(decisions)
         Cadence.logger.info("Decision task for #{workflow_name} completed")
 
@@ -70,10 +91,13 @@ module Cadence
       def fail_task(message)
         Cadence.logger.error("Decision task for #{workflow_name} failed with: #{message}")
 
+        # Stop from getting into infinite loop if the error persists
+        return if task.attempt >= MAX_FAILED_ATTEMPTS
+
         client.respond_decision_task_failed(
           task_token: task_token,
           cause: CadenceThrift::DecisionTaskFailedCause::UNHANDLED_DECISION,
-          details: { message: message }
+          details: message
         )
       end
     end
