@@ -5,6 +5,8 @@ module Cadence
 
     class << self
       def time_from_nanos(timestamp)
+        return unless timestamp
+        
         seconds, nanoseconds = timestamp.divmod(NANO)
         Time.at(seconds, nanoseconds, :nsec)
       end

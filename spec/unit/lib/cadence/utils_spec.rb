@@ -13,6 +13,15 @@ describe Cadence::Utils do
     end
   end
 
+  describe '.time_from_nanos return nil' do
+    let(:timestamp) { nil }
+    subject { described_class.time_from_nanos(timestamp) }
+
+    it 'returns time' do
+      expect(subject).to eq(nil)
+    end
+  end
+
   describe '.time_to_nanos' do
     subject { described_class.time_to_nanos(time) }
 
