@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.1.17
+- Fix list_open_workflow_executions to allow closed time to be nil 
+
+## 0.1.17
 - Add workflow decision task deserialization logic that is compatible with official go implementation
 
 ## 0.1.16
