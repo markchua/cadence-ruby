@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.19
+- Cherry-pick header propagation changes.
+
 ## 0.1.18
 - Fix list_open_workflow_executions to allow closed time to be nil 
 
